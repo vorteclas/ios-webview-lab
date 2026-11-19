@@ -1,0 +1,23 @@
+name: Lab
+options:
+  bundleIdPrefix: lab.webview
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  Lab:
+    type: application
+    platform: iOS
+    scheme: {}
+    sources:
+      - path: Sources
+      - path: Resources
+        buildPhase: resources
+    info:
+      path: Sources/Info.plist
+      properties:
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: lab.webview.app
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_VERSION: "5.0"

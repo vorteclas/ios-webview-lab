@@ -1,0 +1,52 @@
+name: ios-sim
+
+# No pull_request trigger: workflows from forks never run here.
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Page to load
+        default: https://www.reddit.com/r/popular/
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  run:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Xcode project
+        run: brew install xcodegen && xcodegen generate
+
+      - name: Build for the simulator
+        run: |
+          xcodebuild -project Lab.xcodeproj -scheme Lab -sdk iphonesimulator \
+            -configuration Debug -derivedDataPath build CODE_SIGNING_ALLOWED=NO build \
+            | tail -25
+
+      - name: Run in an iPhone simulator
+        env:
+          TARGET_URL: ${{ inputs.url || 'https://www.reddit.com/r/popular/' }}
+        run: |
+          DEV=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)["devices"]
+          print(next(x["udid"] for k, v in d.items() if "iOS" in k for x in v if x["name"].startswith("iPhone")))')
+          xcrun simctl list devices | grep "$DEV"
+          xcrun simctl boot "$DEV"
+          xcrun simctl bootstatus "$DEV" -b
+          xcrun simctl install "$DEV" build/Build/Products/Debug-iphonesimulator/Lab.app
+          mkdir -p out
+          xcrun simctl launch --console-pty "$DEV" lab.webview.app -url "$TARGET_URL" > out/console.txt 2>&1 &
+          sleep 50
+          # Counts only. No screenshot is uploaded: artifacts of a public repo are public.
+          grep LAB_RESULT out/console.txt || { echo "no LAB_RESULT"; tail -30 out/console.txt; exit 1; }
