@@ -16,6 +16,8 @@ targets:
       path: Sources/Info.plist
       properties:
         UILaunchScreen: {}
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: lab.webview.app

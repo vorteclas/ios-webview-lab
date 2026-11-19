@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Synthetic Reddit feed</title>
+<style>
+  body { font-family: -apple-system, sans-serif; margin: 0; background: #fff; }
+  shreddit-post, shreddit-ad-post { display: block; border-bottom: 1px solid #ddd; padding: 16px; min-height: 120px; }
+  [slot="title"] { display: block; font-weight: 600; font-size: 17px; }
+  shreddit-ad-post { background: #f6f6f6; }
+</style>
+</head>
+<body>
+<!-- Invented posts. Mirrors the recorded structure: organic cells are article > shreddit-post
+     with feedindex; ads are shreddit-ad-post directly in shreddit-feed; the comments-page post
+     has view-context="CommentsPage" and no feedindex. -->
+<shreddit-app>
+  <shreddit-post id="t3_pinned0" view-context="CommentsPage" post-title="Not a feed post"><a slot="title">Not a feed post</a></shreddit-post>
+  <shreddit-feed id="feed"></shreddit-feed>
+</shreddit-app>
+<script>
+  const TITLES = [
+    "My sourdough finally rose", "Election debate recap thread", "Cat discovers the dishwasher",
+    "Tiny cabin build, week 12", "Senate politics megathread", "Found this rock on a hike",
+    "Old film camera photos", "Why the vote count matters (politics)", "Bike commute in the rain",
+    "Homemade ramen attempt", "Desk setup after the move", "Politics: new poll released",
+    "Garden tomatoes this year", "Retro console repair",
+  ];
+  const feed = document.getElementById("feed");
+  let index = 0;
+  function addPost(title) {
+    const art = document.createElement("article");
+    const p = document.createElement("shreddit-post");
+    p.id = "t3_" + (1000 + index).toString(36);
+    p.setAttribute("feedindex", String(index++));
+    p.setAttribute("post-title", title);
+    p.setAttribute("subreddit-prefixed-name", "r/example");
+    const a = document.createElement("a");
+    a.setAttribute("slot", "title");
+    a.textContent = title;
+    p.appendChild(a);
+    art.appendChild(p);
+    feed.appendChild(art);
+  }
+  function addAd() {
+    const ad = document.createElement("shreddit-ad-post");
+    ad.setAttribute("feedindex", String(index++));
+    ad.setAttribute("promoted", "");
+    ad.textContent = "Sponsored: an invented ad";
+    feed.appendChild(ad);
+  }
+  // First screen: 8 posts and 1 ad. Later, as on the real site, more cells arrive while scrolling.
+  TITLES.slice(0, 4).forEach(addPost); addAd(); TITLES.slice(4, 8).forEach(addPost);
+  setTimeout(() => { TITLES.slice(8, 11).forEach(addPost); addAd(); TITLES.slice(11).forEach(addPost); }, 4000);
+</script>
+</body>
+</html>

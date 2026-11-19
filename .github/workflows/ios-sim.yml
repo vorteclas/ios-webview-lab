@@ -5,8 +5,8 @@ on:
   workflow_dispatch:
     inputs:
       url:
-        description: Page to load
-        default: https://www.reddit.com/r/popular/
+        description: Page to load (default is the synthetic feed served on the runner)
+        default: http://127.0.0.1:8080/reddit-feed.html
   push:
     branches: [main]
 
@@ -35,8 +35,11 @@ jobs:
 
       - name: Run in an iPhone simulator
         env:
-          TARGET_URL: ${{ inputs.url || 'https://www.reddit.com/r/popular/' }}
+          TARGET_URL: ${{ inputs.url || 'http://127.0.0.1:8080/reddit-feed.html' }}
         run: |
+          # The simulator shares the runner's network, so it reaches this server on 127.0.0.1.
+          python3 -m http.server 8080 --bind 127.0.0.1 --directory fixtures > /dev/null 2>&1 &
+          sleep 1 && curl -sf -o /dev/null http://127.0.0.1:8080/reddit-feed.html && echo "fixture served"
           DEV=$(xcrun simctl list devices available -j | python3 -c '
           import json, sys
           d = json.load(sys.stdin)["devices"]
@@ -50,3 +53,14 @@ jobs:
           sleep 75
           # Counts only. No screenshot is uploaded: artifacts of a public repo are public.
           grep LAB_RESULT out/console.txt || { echo "no LAB_RESULT"; tail -30 out/console.txt; exit 1; }
+          # On the synthetic feed the result is known: 14 posts + 2 ads, 6 hidden (2 ads and 4
+          # posts with a test word), all 6 collapsed, 10 posts still visible.
+          if [[ "$TARGET_URL" == *reddit-feed.html ]]; then
+            grep 'LAB_RESULT {"tag":"final"' out/console.txt | tail -1 | sed 's/^.*LAB_RESULT //' | python3 -c '
+          import json, sys
+          r = json.load(sys.stdin)
+          want = {"posts": 16, "organic": 14, "idOk": 14, "ads": 2, "hidden": 6, "collapsed": 6, "visibleOrganic": 10, "commentsPostMatched": False}
+          bad = {k: (r.get(k), v) for k, v in want.items() if r.get(k) != v}
+          print("CHECK", "PASS" if not bad else "FAIL " + json.dumps(bad))
+          sys.exit(1 if bad else 0)'
+          fi
