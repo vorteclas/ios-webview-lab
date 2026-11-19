@@ -16,6 +16,8 @@
       viewportMeta: !!document.querySelector('meta[name="viewport"]'),
       bodyChars: (document.body && document.body.innerText.length) || 0,
       ua: navigator.userAgent.slice(0, 80),
+      // Only when no feed was found: the start of the page, to tell a block page apart.
+      head: posts.length === 0 && document.body ? document.body.innerText.slice(0, 160) : "",
       posts: posts.length, ads: ads.length, adsHidden: hidden,
     }));
   }
