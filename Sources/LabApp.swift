@@ -33,6 +33,10 @@ struct WebView: UIViewRepresentable {
         let config = WKWebViewConfiguration()
         config.userContentController = controller
         let view = WKWebView(frame: .zero, configuration: config)
+        // WKWebView's default user agent has no "Version/... Safari/..." token, and some sites
+        // serve a different page to it. Present as iPhone Safari.
+        view.customUserAgent =
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 
         let args = ProcessInfo.processInfo.arguments
         var target = "https://www.reddit.com/r/popular/"

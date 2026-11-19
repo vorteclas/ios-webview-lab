@@ -47,6 +47,6 @@ jobs:
           xcrun simctl install "$DEV" build/Build/Products/Debug-iphonesimulator/Lab.app
           mkdir -p out
           xcrun simctl launch --console-pty "$DEV" lab.webview.app -url "$TARGET_URL" > out/console.txt 2>&1 &
-          sleep 50
+          sleep 75
           # Counts only. No screenshot is uploaded: artifacts of a public repo are public.
           grep LAB_RESULT out/console.txt || { echo "no LAB_RESULT"; tail -30 out/console.txt; exit 1; }

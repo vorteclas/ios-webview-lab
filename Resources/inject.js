@@ -10,6 +10,12 @@
     const hidden = ads.filter((a) => a.getBoundingClientRect().height === 0).length;
     window.webkit.messageHandlers.lab.postMessage(JSON.stringify({
       tag, host: location.host, path: location.pathname, width: innerWidth,
+      // Page diagnostics (no post content): which page Reddit served.
+      title: document.title.slice(0, 60), ready: document.readyState,
+      shredditApp: !!document.querySelector("shreddit-app"),
+      viewportMeta: !!document.querySelector('meta[name="viewport"]'),
+      bodyChars: (document.body && document.body.innerText.length) || 0,
+      ua: navigator.userAgent.slice(0, 80),
       posts: posts.length, ads: ads.length, adsHidden: hidden,
     }));
   }
