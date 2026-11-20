@@ -9,7 +9,7 @@ on:
         description: Page to load (default is the synthetic feed served on the runner)
         default: http://127.0.0.1:8080/reddit-feed.html
       mode:
-        description: "holmes = real Holmes Reddit adapter from the private repo; probe = standalone probe"
+        description: "holmes = Holmes adapter + client pipeline + API (fake model) from the private repo; probe = standalone probe"
         default: holmes
   push:
     branches: [main]
@@ -31,28 +31,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Private code: fetched with a read-only token, only extension/src, into ./holmes.
-      # It is bundled into the app and never printed, committed or uploaded.
-      - name: Fetch Holmes adapter (private)
+      # Private code: fetched with a read-only token, only extension/src and backend, into
+      # ./holmes. It is bundled into the app or run on this runner, never printed, committed or
+      # uploaded, and deleted at the end of the job.
+      - name: Fetch Holmes (private)
         if: env.MODE == 'holmes'
         uses: actions/checkout@v4
         with:
           repository: vorteclas/holmes
           token: ${{ secrets.HOLMES_READ_TOKEN }}
           path: holmes
-          sparse-checkout: extension/src
+          sparse-checkout: |
+            extension/src
+            backend
           persist-credentials: false
 
       - name: Build the injected script
         run: |
           if [[ "$MODE" == holmes ]]; then
-            npx -y esbuild@0.25.10 bridge/holmes-bridge.ts --bundle --format=iife \
-              --target=safari17 --log-level=warning --outfile=Resources/inject.js
-            rm -rf holmes
+            npx -y esbuild@0.25.10 bridge/holmes-pipeline.ts --bundle --format=iife \
+              --target=safari17 --alias:wxt/browser=./bridge/stub-browser.ts \
+              --define:__HOLMES_DEV__=false --define:__HOLMES_API__='""' \
+              --define:__HOLMES_TOKEN__='""' --define:__HOLMES_BUILD_ID__='""' \
+              --log-level=warning --outfile=Resources/inject.js
           else
             cp probe/inject-probe.js Resources/inject.js
           fi
           echo "inject.js: $(wc -c < Resources/inject.js) bytes, mode $MODE"
+
+      # The Holmes API on this runner: dev mode, the deterministic fake model (no Jev key, no
+      # network to Jev), Redis for cache and budget, no database. Its log stays on the runner.
+      - name: Start the Holmes API
+        if: env.MODE == 'holmes'
+        run: |
+          brew install redis uv > /dev/null
+          redis-server --port 6379 --daemonize yes
+          cd holmes/backend
+          uv sync --frozen -q
+          HOLMES_ENV=dev HOLMES_FAKE_JEV=1 nohup uv run uvicorn holmes.app:get_app --factory \
+            --host 127.0.0.1 --port 8791 > "$RUNNER_TEMP/api.log" 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8791/readyz > /dev/null && break; sleep 1; done
+          curl -s http://127.0.0.1:8791/readyz; echo
 
       - name: Generate Xcode project
         run: brew install xcodegen && xcodegen generate
@@ -77,25 +96,39 @@ jobs:
           xcrun simctl bootstatus "$DEV" -b
           xcrun simctl install "$DEV" build/Build/Products/Debug-iphonesimulator/Lab.app
           mkdir -p out
-          xcrun simctl launch --console-pty "$DEV" lab.webview.app -url "$TARGET_URL" > out/console.txt 2>&1 &
+          xcrun simctl launch --console-pty "$DEV" lab.webview.app -url "$TARGET_URL" -api http://127.0.0.1:8791 > out/console.txt 2>&1 &
           sleep 75
           # Counts only. No screenshot is uploaded: artifacts of a public repo are public.
           grep LAB_RESULT out/console.txt || { echo "no LAB_RESULT"; tail -30 out/console.txt; exit 1; }
           [[ "$TARGET_URL" == *reddit-feed.html ]] || exit 0
-          # The synthetic feed has a known answer: 14 posts + 2 ads; 2 ads and 4 posts with a
-          # test word are hidden, 10 posts stay. With the Holmes adapter each hidden cell shows
-          # the 44 px Holmes bar (+1 px cell border).
-          grep 'LAB_RESULT {"tag":"final"' out/console.txt | tail -1 | sed 's/^.*LAB_RESULT //' | python3 -c '
-          import json, os, sys
-          r = json.load(sys.stdin)
+          # The synthetic feed has a known answer: 14 posts + 2 ads. Holmes: the 2 ads are hidden
+          # by rule, the 14 posts go to the API and come back from the (fake) model, the 4 with
+          # the politics marker are hidden, each as the 44 px bar (+1 px cell border) or, when on
+          # screen as the verdict lands, as a badge. Probe: the same counts by its own rules.
+          grep 'LAB_NET' out/console.txt || true
+          python3 - <<'PY'
+          import json, os, re, sys
+          lines = open("out/console.txt").read().splitlines()
+          final = [l for l in lines if 'LAB_RESULT {"tag":"final"' in l]
+          r = json.loads(final[-1].split("LAB_RESULT ", 1)[1]) if final else {}
+          bad = {}
           if os.environ["MODE"] == "holmes":
-              want = {"mode": "holmes-adapter", "site": "reddit", "posts": 16, "keys": 14, "ads": 2,
-                      "politics": 4, "kept": 10, "noKey": 0, "withTitle": 14, "collapsed": 6}
+              want = {"mode": "holmes-pipeline", "site": "reddit", "cells": 16, "known": 16, "rule": 2,
+                      "done": 14, "failed": 0, "pending": 0, "status": "ok"}
+              hidden = (r.get("collapsed") or 0) + (r.get("badged") or 0)
+              if hidden != 6: bad["collapsed+badged"] = (hidden, 6)
+              if r.get("bars") != r.get("collapsed"): bad["bars"] = (r.get("bars"), r.get("collapsed"))
+              if not all(43 <= h <= 47 for h in r.get("barHeights") or [45]): bad["barHeights"] = (r.get("barHeights"), "44-46")
+              model = sum(int(m) for m in re.findall(r"LAB_NET classify status=200 .*model:(\d+)", "\n".join(lines)))
+              if model != 14: bad["model answers"] = (model, 14)
           else:
               want = {"posts": 16, "organic": 14, "idOk": 14, "ads": 2, "hidden": 6, "collapsed": 6,
                       "visibleOrganic": 10, "commentsPostMatched": False}
-          bad = {k: (r.get(k), v) for k, v in want.items() if r.get(k) != v}
-          if os.environ["MODE"] == "holmes" and not all(43 <= h <= 47 for h in r.get("stripHeights") or [0]):
-              bad["stripHeights"] = (r.get("stripHeights"), "44-46")
+          bad |= {k: (r.get(k), v) for k, v in want.items() if r.get(k) != v}
           print("CHECK", "PASS" if not bad else "FAIL " + json.dumps(bad))
-          sys.exit(1 if bad else 0)'
+          sys.exit(1 if bad else 0)
+          PY
+
+      - name: Remove the private checkout
+        if: always()
+        run: rm -rf holmes Resources/inject.js "$RUNNER_TEMP/api.log"

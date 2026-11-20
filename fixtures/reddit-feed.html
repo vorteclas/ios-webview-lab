@@ -12,7 +12,8 @@
 </style>
 </head>
 <body>
-<!-- Invented posts. Mirrors the recorded structure: organic cells are article > shreddit-post
+<!-- Invented posts. [[politics]] is the marker the dev-only fake model (HOLMES_FAKE_JEV=1)
+     scores 0.97 for politics; the probe matches the words instead. Mirrors the recorded structure: organic cells are article > shreddit-post
      with feedindex; ads are shreddit-ad-post directly in shreddit-feed; the comments-page post
      has view-context="CommentsPage" and no feedindex. -->
 <shreddit-app>
@@ -21,10 +22,10 @@
 </shreddit-app>
 <script>
   const TITLES = [
-    "My sourdough finally rose", "Election debate recap thread", "Cat discovers the dishwasher",
-    "Tiny cabin build, week 12", "Senate politics megathread", "Found this rock on a hike",
-    "Old film camera photos", "Why the vote count matters (politics)", "Bike commute in the rain",
-    "Homemade ramen attempt", "Desk setup after the move", "Politics: new poll released",
+    "My sourdough finally rose", "Election debate recap thread [[politics]]", "Cat discovers the dishwasher",
+    "Tiny cabin build, week 12", "Senate politics megathread [[politics]]", "Found this rock on a hike",
+    "Old film camera photos", "Why the vote count matters (politics) [[politics]]", "Bike commute in the rain",
+    "Homemade ramen attempt", "Desk setup after the move", "Politics: new poll released [[politics]]",
     "Garden tomatoes this year", "Retro console repair",
   ];
   const feed = document.getElementById("feed");
@@ -53,6 +54,9 @@
     const ad = document.createElement("shreddit-ad-post");
     ad.setAttribute("feedindex", String(index++));
     ad.setAttribute("promoted", "");
+    // Real ads carry a t3_ id and a title too (extension/tests/fixtures/reddit/syn-ad.html).
+    ad.id = "t3_ad" + (1000 + index).toString(36);
+    ad.setAttribute("post-title", "An invented ad");
     ad.textContent = "Sponsored: an invented ad";
     shell(ad);
     feed.appendChild(ad);
