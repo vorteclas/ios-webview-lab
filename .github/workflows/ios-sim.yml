@@ -96,7 +96,21 @@ jobs:
           xcrun simctl bootstatus "$DEV" -b
           xcrun simctl install "$DEV" build/Build/Products/Debug-iphonesimulator/Lab.app
           mkdir -p out
-          xcrun simctl launch --console-pty "$DEV" lab.webview.app -url "$TARGET_URL" -api http://127.0.0.1:8791 > out/console.txt 2>&1 &
+          launch() {
+            xcrun simctl launch --console-pty "$DEV" lab.webview.app -url "$TARGET_URL" \
+              -api http://127.0.0.1:8791 > out/console.txt 2>&1 &
+            LAUNCH=$!
+          }
+          # A fresh simulator sometimes leaves the first launch hanging with no output: if nothing
+          # shows within 60 s, terminate and launch once more.
+          launch
+          for i in $(seq 1 30); do [[ -s out/console.txt ]] && break; sleep 2; done
+          if [[ ! -s out/console.txt ]]; then
+            echo "no output after 60 s: relaunching"
+            kill "$LAUNCH" 2>/dev/null || true
+            xcrun simctl terminate "$DEV" lab.webview.app 2>/dev/null || true
+            launch
+          fi
           # Cold start of the app and its web content process varies a lot on these runners:
           # wait for the final report (or a timeout) instead of a fixed time.
           for i in $(seq 1 90); do grep -q 'LAB_RESULT {"tag":"final"' out/console.txt && break; sleep 2; done
