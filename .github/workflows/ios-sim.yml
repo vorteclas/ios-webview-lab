@@ -97,7 +97,9 @@ jobs:
           xcrun simctl install "$DEV" build/Build/Products/Debug-iphonesimulator/Lab.app
           mkdir -p out
           xcrun simctl launch --console-pty "$DEV" lab.webview.app -url "$TARGET_URL" -api http://127.0.0.1:8791 > out/console.txt 2>&1 &
-          sleep 75
+          # Cold start of the app and its web content process varies a lot on these runners:
+          # wait for the final report (or a timeout) instead of a fixed time.
+          for i in $(seq 1 90); do grep -q 'LAB_RESULT {"tag":"final"' out/console.txt && break; sleep 2; done
           # Counts only. No screenshot is uploaded: artifacts of a public repo are public.
           grep LAB_RESULT out/console.txt || { echo "no LAB_RESULT"; tail -30 out/console.txt; exit 1; }
           [[ "$TARGET_URL" == *reddit-feed.html ]] || exit 0
