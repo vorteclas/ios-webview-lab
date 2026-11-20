@@ -6,7 +6,7 @@
 <title>Synthetic Reddit feed</title>
 <style>
   body { font-family: -apple-system, sans-serif; margin: 0; background: #fff; }
-  shreddit-post, shreddit-ad-post { display: block; border-bottom: 1px solid #ddd; padding: 16px; min-height: 120px; }
+  shreddit-post, shreddit-ad-post { display: block; border-bottom: 1px solid #ddd; }
   [slot="title"] { display: block; font-weight: 600; font-size: 17px; }
   shreddit-ad-post { background: #f6f6f6; }
 </style>
@@ -29,6 +29,11 @@
   ];
   const feed = document.getElementById("feed");
   let index = 0;
+  // Like the real elements: an open shadow root holding slots and the site's own chrome.
+  function shell(el) {
+    const sr = el.attachShadow({ mode: "open" });
+    sr.innerHTML = '<div style="padding:16px;min-height:120px"><slot name="title"></slot><slot></slot></div>';
+  }
   function addPost(title) {
     const art = document.createElement("article");
     const p = document.createElement("shreddit-post");
@@ -40,6 +45,7 @@
     a.setAttribute("slot", "title");
     a.textContent = title;
     p.appendChild(a);
+    shell(p);
     art.appendChild(p);
     feed.appendChild(art);
   }
@@ -48,6 +54,7 @@
     ad.setAttribute("feedindex", String(index++));
     ad.setAttribute("promoted", "");
     ad.textContent = "Sponsored: an invented ad";
+    shell(ad);
     feed.appendChild(ad);
   }
   // First screen: 8 posts and 1 ad. Later, as on the real site, more cells arrive while scrolling.

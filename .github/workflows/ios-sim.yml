@@ -1,12 +1,16 @@
 name: ios-sim
 
-# No pull_request trigger: workflows from forks never run here.
+# No pull_request trigger: workflows from forks never run here, so the secret below is never
+# offered to code from outside this repository.
 on:
   workflow_dispatch:
     inputs:
       url:
         description: Page to load (default is the synthetic feed served on the runner)
         default: http://127.0.0.1:8080/reddit-feed.html
+      mode:
+        description: "holmes = real Holmes Reddit adapter from the private repo; probe = standalone probe"
+        default: holmes
   push:
     branches: [main]
 
@@ -21,8 +25,34 @@ jobs:
   run:
     runs-on: macos-15
     timeout-minutes: 20
+    env:
+      MODE: ${{ inputs.mode || 'holmes' }}
+      TARGET_URL: ${{ inputs.url || 'http://127.0.0.1:8080/reddit-feed.html' }}
     steps:
       - uses: actions/checkout@v4
+
+      # Private code: fetched with a read-only token, only extension/src, into ./holmes.
+      # It is bundled into the app and never printed, committed or uploaded.
+      - name: Fetch Holmes adapter (private)
+        if: env.MODE == 'holmes'
+        uses: actions/checkout@v4
+        with:
+          repository: vorteclas/holmes
+          token: ${{ secrets.HOLMES_READ_TOKEN }}
+          path: holmes
+          sparse-checkout: extension/src
+          persist-credentials: false
+
+      - name: Build the injected script
+        run: |
+          if [[ "$MODE" == holmes ]]; then
+            npx -y esbuild@0.25.10 bridge/holmes-bridge.ts --bundle --format=iife \
+              --target=safari17 --log-level=warning --outfile=Resources/inject.js
+            rm -rf holmes
+          else
+            cp probe/inject-probe.js Resources/inject.js
+          fi
+          echo "inject.js: $(wc -c < Resources/inject.js) bytes, mode $MODE"
 
       - name: Generate Xcode project
         run: brew install xcodegen && xcodegen generate
@@ -34,8 +64,6 @@ jobs:
             | tail -25
 
       - name: Run in an iPhone simulator
-        env:
-          TARGET_URL: ${{ inputs.url || 'http://127.0.0.1:8080/reddit-feed.html' }}
         run: |
           # The simulator shares the runner's network, so it reaches this server on 127.0.0.1.
           python3 -m http.server 8080 --bind 127.0.0.1 --directory fixtures > /dev/null 2>&1 &
@@ -53,14 +81,21 @@ jobs:
           sleep 75
           # Counts only. No screenshot is uploaded: artifacts of a public repo are public.
           grep LAB_RESULT out/console.txt || { echo "no LAB_RESULT"; tail -30 out/console.txt; exit 1; }
-          # On the synthetic feed the result is known: 14 posts + 2 ads, 6 hidden (2 ads and 4
-          # posts with a test word), all 6 collapsed, 10 posts still visible.
-          if [[ "$TARGET_URL" == *reddit-feed.html ]]; then
-            grep 'LAB_RESULT {"tag":"final"' out/console.txt | tail -1 | sed 's/^.*LAB_RESULT //' | python3 -c '
-          import json, sys
+          [[ "$TARGET_URL" == *reddit-feed.html ]] || exit 0
+          # The synthetic feed has a known answer: 14 posts + 2 ads; 2 ads and 4 posts with a
+          # test word are hidden, 10 posts stay. With the Holmes adapter each hidden cell shows
+          # the 44 px Holmes bar (+1 px cell border).
+          grep 'LAB_RESULT {"tag":"final"' out/console.txt | tail -1 | sed 's/^.*LAB_RESULT //' | python3 -c '
+          import json, os, sys
           r = json.load(sys.stdin)
-          want = {"posts": 16, "organic": 14, "idOk": 14, "ads": 2, "hidden": 6, "collapsed": 6, "visibleOrganic": 10, "commentsPostMatched": False}
+          if os.environ["MODE"] == "holmes":
+              want = {"mode": "holmes-adapter", "site": "reddit", "posts": 16, "keys": 14, "ads": 2,
+                      "politics": 4, "kept": 10, "noKey": 0, "withTitle": 14, "collapsed": 6}
+          else:
+              want = {"posts": 16, "organic": 14, "idOk": 14, "ads": 2, "hidden": 6, "collapsed": 6,
+                      "visibleOrganic": 10, "commentsPostMatched": False}
           bad = {k: (r.get(k), v) for k, v in want.items() if r.get(k) != v}
+          if os.environ["MODE"] == "holmes" and not all(43 <= h <= 47 for h in r.get("stripHeights") or [0]):
+              bad["stripHeights"] = (r.get("stripHeights"), "44-46")
           print("CHECK", "PASS" if not bad else "FAIL " + json.dumps(bad))
           sys.exit(1 if bad else 0)'
-          fi
