@@ -50,6 +50,13 @@ function report(tag: string): void {
     bars: bars.length,
     barHeights: Array.from(new Set(bars.map((el) => Math.round(el.getBoundingClientRect().height)))),
     sends, status: statusSeen,
+    // Per cell in feed order: its feedindex and what Holmes shows (bar, note/badge, nothing).
+    // Positions only, never content; on the synthetic feed they map to invented titles.
+    byIndex: adapter.findPosts(document).map((el) => {
+      const host = el.shadowRoot ?? el;
+      const has = (tag: string) => Array.from(host.children).some((c) => c.localName === tag);
+      return el.getAttribute("feedindex") + (has("holmes-bar") ? "bar" : has("holmes-note") ? "note" : "-");
+    }).join(" "),
   };
   handlers.lab.postMessage(JSON.stringify(msg));
 }
