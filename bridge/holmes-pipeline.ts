@@ -70,6 +70,12 @@ function report(tag: string): void {
     tag, mode: "holmes-pipeline", site: adapter.site, path: location.pathname, width: innerWidth,
     adapterView: adapter === xProfile ? "x-profile" : "own",
     cells: cells.length,
+    // Page shape, no content: how many <article>, which timeline ids (prefix only), how many
+    // status links. Tells "no posts served" from "posts in another shape".
+    articles: document.querySelectorAll("article").length,
+    timelines: Array.from(new Set(Array.from(document.querySelectorAll('div[id^="urt:"]')).map((d) => d.id.split(":").slice(0, 2).join(":")))),
+    statusLinks: document.querySelectorAll('a[href*="/status/"]').length,
+    bodyChars: (document.body?.innerText ?? "").length,
     keys: cells.filter((el) => adapter.postKey(el) !== null).length,
     withText: cells.filter((el) => {
       const p = adapter.extract(el).payload;
