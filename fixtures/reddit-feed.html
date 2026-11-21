@@ -28,6 +28,8 @@
     "Homemade ramen attempt", "Desk setup after the move", "Politics: new poll released [[politics]]",
     "Garden tomatoes this year", "Retro console repair",
   ];
+  // ?clean=1: no fake-model markers, for runs against the real model.
+  if (new URLSearchParams(location.search).has("clean")) TITLES.forEach((t, i) => { TITLES[i] = t.replace(" [[politics]]", ""); });
   const feed = document.getElementById("feed");
   let index = 0;
   // Like the real elements: an open shadow root holding slots and the site's own chrome.

@@ -11,6 +11,9 @@ on:
       mode:
         description: "holmes = Holmes adapter + client pipeline + API (fake model) from the private repo; probe = standalone probe"
         default: holmes
+      model:
+        description: "fake = deterministic dev model (no key); jev = the real Jev model (secret JEV_API_KEY)"
+        default: fake
   push:
     branches: [main]
 
@@ -27,7 +30,9 @@ jobs:
     timeout-minutes: 20
     env:
       MODE: ${{ inputs.mode || 'holmes' }}
-      TARGET_URL: ${{ inputs.url || 'http://127.0.0.1:8080/reddit-feed.html' }}
+      MODEL: ${{ inputs.model || 'fake' }}
+      # With the real model the feed drops the fake model's [[politics]] markers (?clean=1).
+      TARGET_URL: ${{ inputs.url || (inputs.model == 'jev' && 'http://127.0.0.1:8080/reddit-feed.html?clean=1' || 'http://127.0.0.1:8080/reddit-feed.html') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -59,16 +64,27 @@ jobs:
           fi
           echo "inject.js: $(wc -c < Resources/inject.js) bytes, mode $MODE"
 
-      # The Holmes API on this runner: dev mode, the deterministic fake model (no Jev key, no
-      # network to Jev), Redis for cache and budget, no database. Its log stays on the runner.
+      # The Holmes API on this runner: dev mode, Redis for cache and budget (empty each run), no
+      # database. Model "fake": the deterministic dev model, no key, nothing sent to Jev. Model
+      # "jev": the real model with the secret key, which only this step sees. The API's log
+      # stays on the runner and is deleted.
       - name: Start the Holmes API
         if: env.MODE == 'holmes'
+        env:
+          JEV_API_KEY: ${{ inputs.model == 'jev' && secrets.JEV_API_KEY || '' }}
         run: |
+          if [[ "$MODEL" == jev ]]; then
+            [[ -n "$JEV_API_KEY" ]] || { echo "model jev: secret JEV_API_KEY is not set"; exit 1; }
+            FAKE=0
+          else
+            FAKE=1
+            unset JEV_API_KEY
+          fi
           brew install redis uv > /dev/null
           redis-server --port 6379 --daemonize yes
           cd holmes/backend
           uv sync --frozen -q
-          HOLMES_ENV=dev HOLMES_FAKE_JEV=1 nohup uv run uvicorn holmes.app:get_app --factory \
+          HOLMES_ENV=dev HOLMES_FAKE_JEV=$FAKE nohup uv run uvicorn holmes.app:get_app --factory \
             --host 127.0.0.1 --port 8791 > "$RUNNER_TEMP/api.log" 2>&1 &
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:8791/readyz > /dev/null && break; sleep 1; done
           curl -s http://127.0.0.1:8791/readyz; echo
@@ -116,7 +132,7 @@ jobs:
           for i in $(seq 1 90); do grep -q 'LAB_RESULT {"tag":"final"' out/console.txt && break; sleep 2; done
           # Counts only. No screenshot is uploaded: artifacts of a public repo are public.
           grep LAB_RESULT out/console.txt || { echo "no LAB_RESULT"; tail -30 out/console.txt; exit 1; }
-          [[ "$TARGET_URL" == *reddit-feed.html ]] || exit 0
+          [[ "$TARGET_URL" == *reddit-feed.html* ]] || exit 0
           # The synthetic feed has a known answer: 14 posts + 2 ads. Holmes: the 2 ads are hidden
           # by rule, the 14 posts go to the API and come back from the (fake) model, the 4 with
           # the politics marker are hidden, each as the 44 px bar (+1 px cell border) or, when on
@@ -132,7 +148,11 @@ jobs:
               want = {"mode": "holmes-pipeline", "site": "reddit", "cells": 16, "known": 16, "rule": 2,
                       "done": 14, "failed": 0, "pending": 0, "status": "ok"}
               hidden = (r.get("collapsed") or 0) + (r.get("badged") or 0)
-              if hidden != 6: bad["collapsed+badged"] = (hidden, 6)
+              if os.environ["MODEL"] == "jev":
+                  # The real model's verdicts are not fixed: report them, require only the ads.
+                  print("REAL MODEL hidden", hidden, "of 16 (2 ads by rule; 4 invented politics titles, 10 others)")
+                  if hidden < 2: bad["collapsed+badged"] = (hidden, ">= 2")
+              elif hidden != 6: bad["collapsed+badged"] = (hidden, 6)
               if r.get("bars") != r.get("collapsed"): bad["bars"] = (r.get("bars"), r.get("collapsed"))
               if not all(43 <= h <= 47 for h in r.get("barHeights") or [45]): bad["barHeights"] = (r.get("barHeights"), "44-46")
               model = sum(int(m) for m in re.findall(r"LAB_NET classify status=200 .*model:(\d+)", "\n".join(lines)))
